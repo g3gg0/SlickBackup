@@ -34,7 +34,23 @@ namespace SlickBackup
         {
             BackupConfig config = null;
             BackupEngine engine = null;
+            Thread scanThread = null;
             bool done = false;
+            string logFileName = "SlickBackup_" + DateTime.Now.ToString("yyyy.MM.dd_HH.mm.ss") + ".log";
+            StreamWriter logFile = File.CreateText(logFileName);
+
+
+            Console.CancelKeyPress += delegate (object? sender, ConsoleCancelEventArgs e)
+            {
+                e.Cancel = true;
+
+                if (engine != null)
+                {
+                    engine.SaveCache();
+                }
+
+                done = true;
+            };
 
             try
             {
@@ -59,11 +75,8 @@ namespace SlickBackup
                 return;
             }
 
-            Thread scanThread = new Thread(() =>
+            scanThread = new Thread(() =>
             {
-                var now = DateTime.Now;
-                string logFileName = "SlickBackup_" + now.ToString("yyyy.MM.dd_HH.mm.ss") + ".log";
-                StreamWriter logFile = File.CreateText(logFileName);
 
                 try
                 {
@@ -86,13 +99,13 @@ namespace SlickBackup
                         }
 
                         logFile.WriteLine("Starting Backup '" + backup.Title + "' on " + DateTime.Now.ToString());
+                        logFile.WriteLine("    Source      '" + backup.Source + "'");
+                        logFile.WriteLine("    Destination '" + backup.Destination + "'");
                         logFile.Flush();
+
+                        engine.Log = (string line) => { logFile.WriteLine("  " + line); };
                         engine.Execute();
 
-                        foreach (string line in engine.Messages)
-                        {
-                            logFile.WriteLine("  " + line);
-                        }
                         logFile.WriteLine("Finished '" + backup.Title + "' on " + DateTime.Now.ToString());
                         logFile.WriteLine("-------------------------------------------------------------------------------------");
                         logFile.Flush();
@@ -147,12 +160,14 @@ namespace SlickBackup
                 Console.WriteLine("  Delete:        " + (engine.FilesDeleted + " (" + FormatSize(engine.SizeDeleted) + ")").PadRight(80));
                 Console.WriteLine("");
                 Console.WriteLine("");
+
                 var msgs = engine.Messages.Skip(Math.Max(0,engine.Messages.Count - 50)).ToArray();
-                foreach (var msg in msgs.Where(l=>l.StartsWith("[ERROR]") || l.StartsWith("DELETE") || l.StartsWith("[INFO]")).Reverse().Take(20))
+                foreach (var msg in msgs.Where(l => l.StartsWith("[ERROR]") || l.StartsWith("DELETE") || l.StartsWith("[INFO]")).Reverse().Take(20))
                 {
                     Console.WriteLine("  " + CompressString(msg, 140).PadRight(140));
                 }
                 Thread.Sleep(100);
+                logFile.Flush();
             }
 
             foreach (var fail in engine.Messages)
@@ -160,6 +175,7 @@ namespace SlickBackup
                 Console.Error.WriteLine(fail);
             }
         }
+
 
         private static string MakeBar(decimal progress, int width = 30)
         {

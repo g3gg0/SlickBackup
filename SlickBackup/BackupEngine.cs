@@ -58,6 +58,7 @@ namespace SlickBackup
         internal List<string> IgnoreList = new();
         private FileStream LockFileHandle;
         internal ParallelOptions ParallelOptions = new();
+        internal Action<string> Log;
 
         public BackupEngine()
         {
@@ -446,18 +447,38 @@ namespace SlickBackup
                     indexValid |= LoadCache(DestinationFolder, "_dst_cache_bak.sbc", ref DestinationIndex);
                 }
 
-                if (indexValid && DestinationIndex.CacheUpdateCounter >= CacheUpdateCounterMax)
+
+                if (indexValid)
                 {
-                    DestinationIndex.CurrentEntity = "Used cache " + DestinationIndex.CacheUpdateCounter + "/" + CacheUpdateCounterMax + " times, reindexing...";
-                    AddMessage("[INFO] Used cache " + DestinationIndex.CacheUpdateCounter + "/" + CacheUpdateCounterMax + " times, reindexing...");
-                    indexValid = false;
+                    if (DestinationIndex.CacheUpdateCounter >= CacheUpdateCounterMax)
+                    {
+                        string msg = "Used cache " + DestinationIndex.CacheUpdateCounter + "/" + CacheUpdateCounterMax + " times, reindexing...";
+
+                        DestinationIndex.CurrentEntity = msg;
+                        AddMessage("[INFO] " + msg);
+                        indexValid = false;
+                    }
+                    else
+                    {
+                        AddMessage("  Used cache " + DestinationIndex.CacheUpdateCounter + "/" + CacheUpdateCounterMax + " times. " + (CacheUpdateCounterMax - DestinationIndex.CacheUpdateCounter) + " runs until reindexing.");
+                        AddMessage("  File count: " + DestinationIndex.IndexedFiles);
+                        AddMessage("  File sizes: " + DestinationIndex.IndexedSize + " (" + FormatSize(DestinationIndex.IndexedSize) + ")");
+                    }
+                }
+                else
+                {
+                    AddMessage("[INFO] Cache invalid. Indexing destination directory.");
                 }
 
                 if (!indexValid)
                 {
                     DestinationIndex = new();
                     DestinationIndex.Root = new TreeNode() { Name = DestinationFolder };
+
+                    DateTime start = DateTime.Now;
                     IndexDirectory(DestinationIndex, DestinationFolder, DestinationIndex.Root);
+                    DateTime end = DateTime.Now;
+                    AddMessage("[INFO] Indexing finished, took " + (end - start).TotalSeconds + " seconds.");
 
                     DestinationIndex.Modified = true;
                 }
@@ -524,6 +545,11 @@ namespace SlickBackup
             {
                 string cachedIndex = Path.Combine(DestinationFolder, file);
 
+                if(!File.Exists(cachedIndex))
+                {
+                    return false;
+                }
+
                 destinationIndex.CurrentEntity = "Reading '" + cachedIndex + "'";
 
                 string jsonString = null;
@@ -534,6 +560,7 @@ namespace SlickBackup
                 }
                 catch(Exception ex)
                 {
+                    AddMessage("[INFO] Cache reading failed: " + ex.ToString());
                     jsonString = null;
                 }
                 if (jsonString == null)
@@ -1076,6 +1103,8 @@ namespace SlickBackup
 
         private void AddMessage(string v)
         {
+            Log(v);
+            
             lock (Messages)
             {
                 Messages.Add(v);
@@ -1214,14 +1243,6 @@ namespace SlickBackup
             {
             }
             State = eState.Done;
-        }
-
-        private void AddMessage(List<string> messages)
-        {
-            lock (Messages)
-            {
-                Messages.AddRange(messages);
-            }
         }
 
         internal void Execute()
