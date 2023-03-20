@@ -14,6 +14,8 @@ namespace SlickBackup
 {
     public class Program
     {
+        private static StreamWriter LogFile = null;
+
         public class Backup
         {
             public string Title;
@@ -37,8 +39,8 @@ namespace SlickBackup
             Thread scanThread = null;
             bool done = false;
             string logFileName = "SlickBackup_" + DateTime.Now.ToString("yyyy.MM.dd_HH.mm.ss") + ".log";
-            StreamWriter logFile = File.CreateText(logFileName);
 
+            LogFile = File.CreateText(logFileName);
 
             Console.CancelKeyPress += delegate (object? sender, ConsoleCancelEventArgs e)
             {
@@ -98,26 +100,22 @@ namespace SlickBackup
                             engine.IgnoreList.AddRange(backup.IgnoreList.Replace(";", ",").Split(',').Select(s => s.Trim()));
                         }
 
-                        logFile.WriteLine("Starting Backup '" + backup.Title + "' on " + DateTime.Now.ToString());
-                        logFile.WriteLine("    Source      '" + backup.Source + "'");
-                        logFile.WriteLine("    Destination '" + backup.Destination + "'");
-                        logFile.Flush();
+                        LogFile.WriteLine("Starting Backup '{0}' on {1}", backup.Title, DateTime.Now.ToString());
+                        LogFile.WriteLine("    Source      '{0}'", backup.Source);
+                        LogFile.WriteLine("    Destination '{0}'", backup.Destination);
+                        LogFile.Flush();
 
-                        engine.Log = (string line) => { logFile.WriteLine("  " + line); };
+                        engine.Log = LogFunc;
                         engine.Execute();
 
-                        logFile.WriteLine("Finished '" + backup.Title + "' on " + DateTime.Now.ToString());
-                        logFile.WriteLine("-------------------------------------------------------------------------------------");
-                        logFile.Flush();
+                        LogFile.WriteLine("Finished '{0}' on {1}", backup.Title, DateTime.Now.ToString());
+                        LogFile.WriteLine("-------------------------------------------------------------------------------------");
+                        LogFile.Flush();
                     }
                 }
                 catch (Exception e)
                 {
-                    Console.WriteLine("EXCEPTION: " + e.ToString());
-                }
-                finally
-                {
-                    logFile.Close();
+                    Console.WriteLine("EXCEPTION: {0}", e.ToString());
                 }
                 done = true;
             });
@@ -132,50 +130,65 @@ namespace SlickBackup
                 }
                 Console.SetCursorPosition(0, 0);
                 Console.WriteLine("");
-                Console.WriteLine("Title:           " + engine.Title.ToString().PadRight(80));
-                Console.WriteLine("State:           " + engine.State.ToString().PadRight(80));
-                Console.WriteLine("Progress Size:   " + MakeBar(engine.ProgressSize).PadRight(80));
-                Console.WriteLine("Progress Files:  " + MakeBar(engine.ProgressFiles).PadRight(80));
+                Console.WriteLine("Title:           {0,-80}", engine.Title);
+                Console.WriteLine("State:           {0,-80}", engine.State);
+                Console.WriteLine("Progress Size:   {0,-80}", MakeBar(engine.ProgressSize));
+                Console.WriteLine("Progress Files:  {0,-80}", MakeBar(engine.ProgressFiles));
                 Console.WriteLine("");
                 Console.WriteLine("Source:");
-                Console.WriteLine("  Path:          " + CompressString(engine.SourceIndex.CurrentEntity).PadRight(80));
-                Console.WriteLine("  Directories:   " + engine.SourceIndex.IndexedDirectories.ToString().PadRight(80));
-                Console.WriteLine("  Files:         " + engine.SourceIndex.IndexedFiles.ToString().PadRight(80));
-                Console.WriteLine("  Size:          " + FormatSize(engine.SourceIndex.IndexedSize).PadRight(80));
+                Console.WriteLine("  Path:          {0,-80}", CompressString(engine.SourceIndex.CurrentEntity));
+                Console.WriteLine("  Directories:   {0,-80}", engine.SourceIndex.IndexedDirectories);
+                Console.WriteLine("  Files:         {0,-80}", engine.SourceIndex.IndexedFiles);
+                Console.WriteLine("  Size:          {0,-80}", FormatSize(engine.SourceIndex.IndexedSize));
                 Console.WriteLine("");
                 Console.WriteLine("Destination:");
-                Console.WriteLine("  Path:          " + CompressString(engine.DestinationIndex.CurrentEntity).PadRight(80));
-                Console.WriteLine("  Directories:   " + engine.DestinationIndex.IndexedDirectories.ToString().PadRight(80));
-                Console.WriteLine("  Files:         " + engine.DestinationIndex.IndexedFiles.ToString().PadRight(80));
-                Console.WriteLine("  Size:          " + FormatSize(engine.DestinationIndex.IndexedSize).PadRight(80));
+                Console.WriteLine("  Path:          {0,-80}", CompressString(engine.DestinationIndex.CurrentEntity));
+                Console.WriteLine("  Directories:   {0,-80}", engine.DestinationIndex.IndexedDirectories);
+                Console.WriteLine("  Files:         {0,-80}", engine.DestinationIndex.IndexedFiles);
+                Console.WriteLine("  Size:          {0,-80}", FormatSize(engine.DestinationIndex.IndexedSize));
                 Console.WriteLine("");
                 Console.WriteLine("Queue:");
-                Console.WriteLine("  Copy:          " + (engine.FilesToCopy + " (" + FormatSize(engine.SizeToCopy) + ")").PadRight(80));
-                Console.WriteLine("  Update:        " + (engine.FilesToUpdate + " (" + FormatSize(engine.SizeToUpdate) + ")").PadRight(80));
-                Console.WriteLine("  Delete:        " + (engine.FilesToDelete + " (" + FormatSize(engine.SizeToDelete) + ")").PadRight(80));
+                Console.WriteLine("  Copy:          {0} ({1})          ", engine.FilesToCopy, FormatSize(engine.SizeToCopy));
+                Console.WriteLine("  Update:        {0} ({1})          ", engine.FilesToUpdate, FormatSize(engine.SizeToUpdate));
+                Console.WriteLine("  Delete:        {0} ({1})          ", engine.FilesToDelete, FormatSize(engine.SizeToDelete));
                 Console.WriteLine("");
                 Console.WriteLine("Done");
-                Console.WriteLine("  Copy:          " + (engine.FilesCopied + " (" + FormatSize(engine.SizeCopied) + ")").PadRight(80));
-                Console.WriteLine("  Update:        " + (engine.FilesUpdated + " (" + FormatSize(engine.SizeUpdated) + ")").PadRight(80));
-                Console.WriteLine("  Delete:        " + (engine.FilesDeleted + " (" + FormatSize(engine.SizeDeleted) + ")").PadRight(80));
+                Console.WriteLine("  Copy:          {0} ({1})          ", engine.FilesCopied, FormatSize(engine.SizeCopied));
+                Console.WriteLine("  Update:        {0} ({1})          ", engine.FilesUpdated, FormatSize(engine.SizeUpdated));
+                Console.WriteLine("  Delete:        {0} ({1})          ", engine.FilesDeleted, FormatSize(engine.SizeDeleted));
                 Console.WriteLine("");
                 Console.WriteLine("");
 
                 var msgs = engine.Messages.Skip(Math.Max(0,engine.Messages.Count - 50)).ToArray();
                 foreach (var msg in msgs.Where(l => l.StartsWith("[ERROR]") || l.StartsWith("DELETE") || l.StartsWith("[INFO]")).Reverse().Take(20))
                 {
-                    Console.WriteLine("  " + CompressString(msg, 140).PadRight(140));
+                    Console.WriteLine("  {0}", CompressString(msg, 140).PadRight(140));
                 }
                 Thread.Sleep(100);
-                logFile.Flush();
+                LogFile.Flush();
             }
 
             foreach (var fail in engine.Messages)
             {
                 Console.Error.WriteLine(fail);
             }
+            LogFile.Close();
         }
 
+        private static void LogFunc(string line)
+        {
+            lock (LogFile)
+            {
+                try
+                {
+                    LogFile.WriteLine("  {0}", line);
+                }
+                catch (Exception ex)
+                {
+                    LogFile.WriteLine("  Exception when adding log entry: ", ex.Message);
+                }
+            }
+        }
 
         private static string MakeBar(decimal progress, int width = 30)
         {

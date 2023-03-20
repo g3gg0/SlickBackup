@@ -636,14 +636,33 @@ namespace SlickBackup
 
         private void SaveCacheCheck()
         {
-            if ((DateTime.Now - DestinationIndex.LastSaveTime).TotalSeconds > AutoSaveTime && DestinationIndex.SaveThread == null)
+            if ((DateTime.Now - DestinationIndex.LastSaveTime).TotalSeconds > AutoSaveTime)
             {
-                DestinationIndex.SaveThread = new Thread(() =>
+                lock (DestinationIndex)
                 {
-                    SaveCache();
-                    DestinationIndex.SaveThread = null;
-                });
-                DestinationIndex.SaveThread.Start();
+                    if (DestinationIndex.SaveThread == null)
+                    {
+                        DestinationIndex.SaveThread = new Thread(() =>
+                        {
+                            try
+                            {
+                                SaveCache();
+                            }
+                            catch (Exception ex)
+                            {
+                            }
+                            DestinationIndex.SaveThread = null;
+                        });
+
+                        try
+                        {
+                            DestinationIndex.SaveThread.Start();
+                        }
+                        catch (Exception ex)
+                        {
+                        }
+                    }
+                }
             }
         }
 
@@ -797,7 +816,7 @@ namespace SlickBackup
             }
         }
 
-        private void CopyFile(string src, string dst)
+        private bool CopyFile(string src, string dst)
         {
             try
             {
@@ -833,6 +852,11 @@ namespace SlickBackup
                             {
                                 try
                                 {
+                                    /* if part of that path is a file, delete it */
+                                    if(File.Exists(dirs.TrimEnd(Path.DirectorySeparatorChar)))
+                                    {
+                                        File.Delete(dirs.TrimEnd(Path.DirectorySeparatorChar));
+                                    }
                                     if (!Directory.Exists(dirs))
                                     {
                                         Directory.CreateDirectory(dirs);
@@ -860,7 +884,7 @@ namespace SlickBackup
 
                 if (!File.Exists(dst))
                 {
-                    return;
+                    return false;
                 }
 
                 for (int retry = 0; retry < 10; retry++)
@@ -891,11 +915,25 @@ namespace SlickBackup
                 }
 
                 TreeSetAttributes(DestinationIndex, dst, eType.File, srcInfo.LastWriteTime, srcInfo.Length);
+                return true;
+            }
+            catch (IOException ex)
+            {
+                /* E_SHARING_VIOLATION */
+                if((uint)ex.HResult == 0x80070020)
+                {
+                    AddMessage("[BUSY] COPY: " + src + " -> " + dst + " -> " + ex.Message);
+                }
+                else
+                {
+                    AddMessage("[ERROR] COPY: " + src + " -> " + dst + " -> " + ex.Message);
+                }
             }
             catch (Exception ex)
             {
                 AddMessage("[ERROR] COPY: " + src + " -> " + dst + " -> " + ex.Message);
             }
+            return false;
         }
 
         private void CopyDirectory(string src, string dst)
@@ -1067,7 +1105,6 @@ namespace SlickBackup
 
                 if (Directory.Exists(src))
                 {
-                    //CopyDirectory(src, dst);
                     if (File.Exists(dst))
                     {
                         AddMessage("[ERROR] Could not create directory '" + dst + "' as there is already a file with that name.");
@@ -1087,10 +1124,12 @@ namespace SlickBackup
                 else if (File.Exists(src))
                 {
                     AddMessage("[VERBOSE] Copy '" + src + "' (" + FormatSize(length) + ")");
-                    CopyFile(src, dst);
-                    FilesCopied++;
-                    SizeCopied += length;
-                    DestinationIndex.IndexedSize += length;
+                    if (CopyFile(src, dst))
+                    {
+                        FilesCopied++;
+                        SizeCopied += length;
+                        DestinationIndex.IndexedSize += length;
+                    }
                 }
                 else
                 {
@@ -1173,7 +1212,7 @@ namespace SlickBackup
                     else
                     {
                         /* just an attribute update */
-                        File.SetAttributes(dst, FileAttributes.Normal);
+                File.SetAttributes(dst, FileAttributes.Normal);
                         File.SetLastWriteTime(dst, info.LastWriteTime);
                         File.SetCreationTime(dst, info.CreationTime);
                         File.SetLastAccessTime(dst, info.LastAccessTime);
